@@ -206,8 +206,14 @@ fun main() {
                             }
                             bot.sendMessage(
                                 chatId = ChatId.fromId(request.user_chat_id.toLong()),
-                                text = confirmationText
+                                text = confirmationText,
+                                replyMarkup = ReplyKeyboardRemove()
                             )
+//                            this.bot.editMessageReplyMarkup(
+//                                chatId = ChatId.fromId(request.user_chat_id.toLong()),
+//                                messageId = incomingMessage.messageId,
+//                                replyMarkup = null
+//                            )
                         }
                     } catch (e: Exception) {
                         println("Ошибка обработки данных от Web App: ${e.message}")
@@ -277,35 +283,34 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
     println("URL для WebApp: $finalWebAppUrl")
 
     val webAppInfo = WebAppInfo(url = finalWebAppUrl)
-    val inlineKeyboardMarkup = InlineKeyboardMarkup.create(
-        listOf(
-            InlineKeyboardButton.WebApp("🗓️ Настроить напоминание", webAppInfo)
-        )
-    )
-
-    env.bot.sendMessage(
-        chatId = userChatId,
-        text = "Нажмите, чтобы настроить напоминание для: '${eventHint.take(50)}...'",
-        replyToMessageId = forwardedMessageToBot.messageId,
-        replyMarkup = inlineKeyboardMarkup
-    )
-
-//    val webAppButton = KeyboardButton(
-//        text = "🗓️ Настроить напоминание",
-//        webApp = webAppInfo
-//    )
-//    val replyKeyboardMarkup = KeyboardReplyMarkup(
-//        keyboard = listOf(listOf(webAppButton)),
-//        resizeKeyboard = true,
-//        oneTimeKeyboard = true
+//    val inlineKeyboardMarkup = InlineKeyboardMarkup.create(
+//        listOf(
+//            InlineKeyboardButton.WebApp("🗓️ Настроить напоминание", webAppInfo)
+//        )
 //    )
 //
 //    env.bot.sendMessage(
 //        chatId = userChatId,
-//        text = "Нажмите кнопку ниже, чтобы настроить напоминание для: '${eventHint.take(50)}'",
+//        text = "Нажмите, чтобы настроить напоминание для: '${eventHint.take(50)}...'",
 //        replyToMessageId = forwardedMessageToBot.messageId,
-//        replyMarkup = replyKeyboardMarkup
+//        replyMarkup = inlineKeyboardMarkup
 //    )
+
+    val replyKeyboardMarkup = KeyboardReplyMarkup(
+        keyboard = listOf(listOf(KeyboardButton(
+            text = "🗓️ Настроить напоминание",
+            webApp = webAppInfo
+        ))),
+        resizeKeyboard = true,
+        oneTimeKeyboard = true
+    )
+
+    env.bot.sendMessage(
+        chatId = userChatId,
+        text = "Нажмите кнопку ниже, чтобы настроить напоминание для: '${eventHint.take(50)}'",
+        replyToMessageId = forwardedMessageToBot.messageId,
+        replyMarkup = replyKeyboardMarkup
+    )
 }
 
 fun startReminderScheduler(bot: Bot) {
