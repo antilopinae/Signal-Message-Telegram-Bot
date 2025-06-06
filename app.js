@@ -3,9 +3,6 @@ document.addEventListener('DOMContentLoaded', function () {
     tg.ready();
     tg.expand();
 
-    const dataToSend = { test: "hello from twa", user_chat_id: userChatId }; // Очень простой объект
-    tg.sendData(JSON.stringify(dataToSend));
-
     const urlParams = new URLSearchParams(window.location.search);
     const userChatId = urlParams.get('user_chat_id');
     const reminderType = urlParams.get('type');
@@ -16,7 +13,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const originalChatId = urlParams.get('original_chat_id');
     const textContent = decodeURIComponent(urlParams.get('text_content') || "");
 
-    const reminderTimeInputEl = document.getElementById('reminderTimeInput'); // Наш новый input
+    const reminderTimeInputEl = document.getElementById('reminderTimeInput');
     const setReminderBtn = document.getElementById('setReminderBtn');
     const statusMessageDiv = document.getElementById('statusMessage');
     const messageHintDiv = document.getElementById('messageHint');
@@ -89,6 +86,7 @@ document.addEventListener('DOMContentLoaded', function () {
             tg.sendData(JSON.stringify(dataToSend));
             statusMessageDiv.textContent = 'Напоминание отправлено на установку... Окно можно закрыть.';
             setReminderBtn.disabled = true;
+
         });
     }
 });

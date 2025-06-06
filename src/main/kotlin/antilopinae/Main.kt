@@ -6,12 +6,12 @@ import com.github.kotlintelegrambot.dispatch
 import com.github.kotlintelegrambot.dispatcher.command
 import com.github.kotlintelegrambot.dispatcher.handlers.MessageHandlerEnvironment
 import com.github.kotlintelegrambot.dispatcher.message
-import com.github.kotlintelegrambot.entities.ChatId
-import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
-import com.github.kotlintelegrambot.entities.ParseMode
+import com.github.kotlintelegrambot.entities.*
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
+import com.github.kotlintelegrambot.entities.keyboard.KeyboardButton
 import com.github.kotlintelegrambot.entities.keyboard.WebAppInfo
 import com.github.kotlintelegrambot.logging.LogLevel
+import com.github.kotlintelegrambot.webhook
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -268,7 +268,6 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
     } else {
         webAppQueryParameters += "&type=text_content"
         if (capturedTextContent != null) {
-            // Ограничиваем длину передаваемого текста, чтобы URL не стал слишком длинным
             webAppQueryParameters += "&text_content=${URLEncoder.encode(capturedTextContent.take(400), StandardCharsets.UTF_8.toString())}"
         }
         println("Готовим TWA для ОТПРАВКИ ТЕКСТА (пересылка невозможна). Текст захвачен: ${capturedTextContent != null}")
@@ -290,6 +289,23 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
         replyToMessageId = forwardedMessageToBot.messageId,
         replyMarkup = inlineKeyboardMarkup
     )
+
+//    val webAppButton = KeyboardButton(
+//        text = "🗓️ Настроить напоминание",
+//        webApp = webAppInfo
+//    )
+//    val replyKeyboardMarkup = KeyboardReplyMarkup(
+//        keyboard = listOf(listOf(webAppButton)),
+//        resizeKeyboard = true,
+//        oneTimeKeyboard = true
+//    )
+//
+//    env.bot.sendMessage(
+//        chatId = userChatId,
+//        text = "Нажмите кнопку ниже, чтобы настроить напоминание для: '${eventHint.take(50)}'",
+//        replyToMessageId = forwardedMessageToBot.messageId,
+//        replyMarkup = replyKeyboardMarkup
+//    )
 }
 
 fun startReminderScheduler(bot: Bot) {

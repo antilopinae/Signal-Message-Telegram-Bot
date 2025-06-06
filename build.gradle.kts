@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "1.9.24"
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24"
+    id("com.github.johnrengelman.shadow") version "7.1.2"
     application
 }
 
@@ -25,6 +26,13 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3") // актуальная версия kotlinx-serialization
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+}
+
+tasks {
+    shadowJar {
+        archiveFileName.set("bot.jar")
+        mergeServiceFiles()
+    }
 }
 
 tasks.test {
