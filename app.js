@@ -3,6 +3,9 @@ document.addEventListener('DOMContentLoaded', function () {
     tg.ready();
     tg.expand();
 
+    const dataToSend = { test: "hello from twa", user_chat_id: userChatId }; // Очень простой объект
+    tg.sendData(JSON.stringify(dataToSend));
+
     const urlParams = new URLSearchParams(window.location.search);
     const userChatId = urlParams.get('user_chat_id');
     const reminderType = urlParams.get('type');

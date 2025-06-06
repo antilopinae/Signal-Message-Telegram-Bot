@@ -8,6 +8,7 @@ import com.github.kotlintelegrambot.dispatcher.handlers.MessageHandlerEnvironmen
 import com.github.kotlintelegrambot.dispatcher.message
 import com.github.kotlintelegrambot.entities.ChatId
 import com.github.kotlintelegrambot.entities.InlineKeyboardMarkup
+import com.github.kotlintelegrambot.entities.ParseMode
 import com.github.kotlintelegrambot.entities.keyboard.InlineKeyboardButton
 import com.github.kotlintelegrambot.entities.keyboard.WebAppInfo
 import com.github.kotlintelegrambot.logging.LogLevel
@@ -50,7 +51,8 @@ fun main() {
                             "Основные команды:\n" +
                             "/help - Инструкция и поддержка\n" +
                             "/status - Посмотреть активные напоминания\n" +
-                            "/unsubscribe - Отключить все напоминания"
+                            "/unsubscribe - Отключить все напоминания",
+                    parseMode = ParseMode.MARKDOWN
                 )
                 println("Обработана команда /start для чата ${chatId.id}")
             }
@@ -71,7 +73,8 @@ fun main() {
                             "/status - Проверить ваши активные напоминания\n" +
                             "/unsubscribe - Удалить все ваши активные напоминания\n" +
                             "/settings - Настройки (в разработке)\n\n" +
-                            "Если возникли проблемы или есть предложения, сообщите разработчику @antilopinae."
+                            "Если возникли проблемы или есть предложения, сообщите разработчику @antilopinae.",
+                    parseMode = ParseMode.MARKDOWN
                 )
                 println("Обработана команда /help для чата ${chatId.id}")
             }
@@ -88,31 +91,45 @@ fun main() {
             command("status") {
                 val userChatId = message.chat.id
                 GlobalScope.launch {
-                    val userActiveReminders = remindersMutex.withLock {
-                        remindersList.filter { it.userChatId == userChatId && !it.isSent }
+                    val userChatId = message.chat.id
+                    println("--- КОМАНДА /status ВЫЗВАНА ДЛЯ ЧАТА $userChatId ---")
+                    GlobalScope.launch {
+                        val currentRemindersSnapshot = remindersMutex.withLock {
+                            println("--- /status: Содержимое remindersList ПЕРЕД фильтрацией (всего ${remindersList.size}) ---")
+                            remindersList.forEachIndexed { index, rem -> println("[$index]: $rem") }
+                            remindersList.toList()
+                        }
+
+                        val userActiveReminders = currentRemindersSnapshot
+                            .filter { it.userChatId == userChatId && !it.isSent }
                             .sortedBy { it.reminderTimestampMillis }
+
+                        println("--- /status: Найдено ${userActiveReminders.size} активных напоминаний для пользователя $userChatId ---")
+                        userActiveReminders.forEachIndexed { index, rem -> println("Активное [$index]: $rem") }
+
+                        if (userActiveReminders.isEmpty()) {
+                            bot.sendMessage(ChatId.fromId(userChatId), "У вас нет активных напоминаний. ✨")
+                        } else {
+                            val remindersText = userActiveReminders.mapIndexed { index, reminder ->
+                                val reminderTimeStr = dateFormatter.format(Date(reminder.reminderTimestampMillis))
+                                var contentPreview = reminder.messageTextContent?.take(30)
+                                    ?: reminder.originalMessageIdToForward?.let { "исходное сообщение" }
+                                    ?: "сообщение"
+                                if (contentPreview.length == 30 && (reminder.messageTextContent?.length
+                                        ?: 0) > 30
+                                ) contentPreview += "..."
+
+                                "${index + 1}. Напоминание для \"$contentPreview\" на $reminderTimeStr"
+                            }.joinToString("\n\n")
+
+                            bot.sendMessage(
+                                chatId = ChatId.fromId(userChatId),
+                                text = "🗓️ **Ваши активные напоминания:**\n\n$remindersText"
+                            )
+                        }
                     }
-
-                    if (userActiveReminders.isEmpty()) {
-                        bot.sendMessage(ChatId.fromId(userChatId), "У вас нет активных напоминаний. ✨")
-                    } else {
-                        val remindersText = userActiveReminders.mapIndexed { index, reminder ->
-                            val reminderTimeStr = dateFormatter.format(Date(reminder.reminderTimestampMillis))
-                            var contentPreview = reminder.messageTextContent?.take(30)
-                                ?: reminder.originalMessageIdToForward?.let { "исходное сообщение" }
-                                ?: "сообщение"
-                            if (contentPreview.length == 30 && (reminder.messageTextContent?.length ?: 0) > 30) contentPreview += "..."
-
-                            "${index + 1}. Напоминание для \"$contentPreview\" на $reminderTimeStr"
-                        }.joinToString("\n\n")
-
-                        bot.sendMessage(
-                            chatId = ChatId.fromId(userChatId),
-                            text = "🗓️ **Ваши активные напоминания:**\n\n$remindersText"
-                        )
-                    }
+                    println("Обработана команда /status для чата ${userChatId}")
                 }
-                println("Обработана команда /status для чата ${userChatId}")
             }
 
             command("unsubscribe") {
@@ -138,6 +155,10 @@ fun main() {
                 val incomingMessage = message
                 val currentChatId = ChatId.fromId(incomingMessage.chat.id)
                 val webAppDataFromMessage = incomingMessage.webAppData
+
+                if (incomingMessage.text?.startsWith("/") == true) {
+                    return@message
+                }
 
                 if (webAppDataFromMessage != null) {
                     val webAppDataJson = webAppDataFromMessage.data
@@ -171,6 +192,9 @@ fun main() {
                             GlobalScope.launch {
                                 remindersMutex.withLock {
                                     remindersList.add(newReminder)
+                                    println("--- НАПОМИНАНИЕ ДОБАВЛЕНО В СПИСОК ---")
+                                    println("Всего напоминаний в списке: ${remindersList.size}")
+                                    remindersList.forEachIndexed { index, rem -> println("[$index]: $rem") }
                                 }
                             }
                             println("Напоминание добавлено: $newReminder")
@@ -234,7 +258,7 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
 
     var webAppQueryParameters = "user_chat_id=${userChatId.id}" +
             "&event_hint=${URLEncoder.encode(eventHint.take(100), StandardCharsets.UTF_8.toString())}" +
-            "&forwarded_to_bot_at=${forwardedMessageToBot.date}" // date это Unix time в секундах
+            "&forwarded_to_bot_at=${forwardedMessageToBot.date}"
 
     if (originalMessageIdForForward != null && originalChatIdFromForForward != null) {
         webAppQueryParameters += "&type=forward" +
