@@ -3,12 +3,16 @@ package antilopinae
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
-@Serializable // Для kotlinx.serialization
+@Serializable
 data class Reminder(
-    val reminderId: String = UUID.randomUUID().toString(),
+    val reminderId: String = java.util.UUID.randomUUID().toString(),
     val userChatId: Long,
-    val originalMessageId: Long,
-    val originalChatId: Long,
     val reminderTimestampMillis: Long,
-    var isSent: Boolean = false
+    var isSent: Boolean = false,
+
+    val originalMessageIdToForward: Long? = null,
+    val originalChatIdToForwardFrom: Long? = null,
+
+    val messageTextContent: String? = null,
+    val forwardedToBotAtMillis: Long
 )

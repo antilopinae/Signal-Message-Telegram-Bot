@@ -1,70 +1,73 @@
 document.addEventListener('DOMContentLoaded', function () {
     const tg = window.Telegram.WebApp;
-    tg.ready(); // Сообщаем Telegram, что приложение готово и можно показать
+    tg.ready();
 
-    // Получаем параметры из URL, переданные ботом
     const urlParams = new URLSearchParams(window.location.search);
     const userChatId = urlParams.get('user_chat_id');
+    const reminderType = urlParams.get('type'); // "forward" или "text_content"
+    const eventHint = decodeURIComponent(urlParams.get('event_hint') || "сообщения");
+    const forwardedToBotAtSeconds = urlParams.get('forwarded_to_bot_at'); // секунды
+
+    // Для "forward"
     const originalMessageId = urlParams.get('original_message_id');
     const originalChatId = urlParams.get('original_chat_id');
+    // Для "text_content"
+    const textContent = decodeURIComponent(urlParams.get('text_content') || "");
+
 
     const reminderTimeInput = document.getElementById('reminderTime');
     const setReminderBtn = document.getElementById('setReminderBtn');
     const statusMessageDiv = document.getElementById('statusMessage');
+    const messageHintDiv = document.getElementById('messageHint'); // Добавь <div id="messageHint"></div> в HTML
 
-    if (!userChatId || !originalMessageId || !originalChatId) {
-        statusMessageDiv.textContent = 'Ошибка: Необходимые данные для установки напоминания отсутствуют. Пожалуйста, попробуйте снова из чата с ботом.';
-        statusMessageDiv.style.color = tg.themeParams.destructive_text_color || 'red';
-        setReminderBtn.classList.add('hidden'); // Скрываем кнопку, если нет данных
+    if (messageHintDiv) {
+        messageHintDiv.textContent = `Напоминание для: ${eventHint}`;
+    }
+
+    if (!userChatId || !reminderType || !forwardedToBotAtSeconds) {
+        statusMessageDiv.textContent = 'Ошибка: Необходимые данные отсутствуют.';
+        setReminderBtn.classList.add('hidden');
         return;
     }
 
-    // Устанавливаем минимальное значение для datetime-local на текущее время + 1 минута, чтобы нельзя было выбрать прошлое
+    // ... (код установки reminderTimeInput.min) ...
     const now = new Date();
-    now.setMinutes(now.getMinutes() + 1); // Добавляем 1 минуту
-    const আইএসওOffset = (new Date()).getTimezoneOffset() * 60000; // смещение в миллисекундах
+    now.setMinutes(now.getMinutes() + 1);
+    const আইএসওOffset = (new Date()).getTimezoneOffset() * 60000;
     const localISOTime = (new Date(now - আইএসওOffset)).toISOString().slice(0,16);
     reminderTimeInput.min = localISOTime;
 
 
     setReminderBtn.addEventListener('click', () => {
-        const reminderTimeValue = reminderTimeInput.value; // "YYYY-MM-DDTHH:mm" (локальное время)
-
+        const reminderTimeValue = reminderTimeInput.value;
         if (!reminderTimeValue) {
-            tg.showAlert('Пожалуйста, выберите дату и время для напоминания.');
+            tg.showAlert('Пожалуйста, выберите дату и время.');
             return;
         }
-
-        // Преобразуем локальное время в UTC timestamp (миллисекунды)
         const localDate = new Date(reminderTimeValue);
-        if (isNaN(localDate.getTime())) {
-            tg.showAlert('Выбрана некорректная дата или время.');
+        if (isNaN(localDate.getTime()) || localDate.getTime() <= Date.now()) {
+            tg.showAlert('Выберите корректное время в будущем.');
             return;
         }
-         if (localDate.getTime() <= Date.now()) {
-            tg.showAlert('Пожалуйста, выберите время в будущем.');
-            return;
-        }
-        const reminderTimestampMillis = localDate.getTime(); // Это уже UTC timestamp, т.к. Date() парсит YYYY-MM-DDTHH:mm как локальное и хранит как UTC.
+        const reminderTimestampMillis = localDate.getTime();
 
         const dataToSend = {
             action: "set_reminder",
             user_chat_id: userChatId,
-            original_message_id: originalMessageId,
-            original_chat_id: originalChatId,
-            reminder_timestamp_millis: reminderTimestampMillis
+            reminder_type: reminderType,
+            reminder_timestamp_millis: reminderTimestampMillis,
+            forwarded_to_bot_at_millis: parseInt(forwardedToBotAtSeconds) * 1000 // преобразуем в миллисекунды
         };
 
-        // Отправляем данные боту
+        if (reminderType === "forward") {
+            dataToSend.original_message_id = originalMessageId;
+            dataToSend.original_chat_id = originalChatId;
+        } else if (reminderType === "text_content") {
+            dataToSend.text_content = textContent; // Передаем текст обратно
+        }
+
         tg.sendData(JSON.stringify(dataToSend));
-
-        // Не обязательно закрывать сразу, бот пришлет подтверждение
-        // Можно показать сообщение в TWA:
         statusMessageDiv.textContent = 'Напоминание отправлено на установку...';
-        statusMessageDiv.style.color = tg.themeParams.text_color || 'black';
-        // tg.close(); // Можно закрыть TWA после отправки, если бот подтверждает в чате
     });
-
-    // Расширяем WebApp для использования всей высоты
     tg.expand();
 });
