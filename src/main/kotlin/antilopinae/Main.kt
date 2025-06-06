@@ -18,14 +18,21 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 val remindersList = mutableListOf<Reminder>()
 val remindersMutex = Mutex()
 
+val dateFormatter = SimpleDateFormat("dd MMM yyyy 'в' HH:mm z", Locale("ru"))
+// init { dateFormatter.timeZone = TimeZone.getTimeZone("Europe/Moscow") } // Пример установки таймзоны
+
 fun main() {
-    val botToken = System.getenv("SIGNAL_MESSAGE_BOT_TOKEN")
+    val botToken = System.getenv("SIGNAL_MESSAGE_BOT_TOKEN") ?: run {
+        println("Ошибка: Переменная окружения SIGNAL_MESSAGE_BOT_TOKEN не установлена.")
+        return
+    }
     val baseWebAppUrl = "https://antilopinae.github.io/Signal-Message-Telegram-Bot/"
 
     val bot = bot {
@@ -37,20 +44,103 @@ fun main() {
                 val chatId = ChatId.fromId(message.chat.id)
                 bot.sendMessage(
                     chatId = chatId,
-                    text = "Привет \uD83D\uDC4B\n" +
-                            "\n" +
-                            "Я — бот, который превращает пересланные сообщения в напоминания. Просто перешли мне любое сообщение, а я помогу тебе настроить, когда и как о нём напомнить."
+                    text = "Привет 👋\n\n" +
+                            "Я — бот, который превращает пересланные сообщения в напоминания. " +
+                            "Просто перешли мне любое сообщение, а я помогу тебе настроить, когда и как о нём напомнить.\n\n" +
+                            "Основные команды:\n" +
+                            "/help - Инструкция и поддержка\n" +
+                            "/status - Посмотреть активные напоминания\n" +
+                            "/unsubscribe - Отключить все напоминания"
                 )
                 println("Обработана команда /start для чата ${chatId.id}")
+            }
+
+            command("help") {
+                val chatId = ChatId.fromId(message.chat.id)
+                bot.sendMessage(
+                    chatId = chatId,
+                    text = "❓ **Как пользоваться ботом:**\n\n" +
+                            "1. **Перешлите** мне любое сообщение, о котором хотите получить напоминание.\n" +
+                            "2. Я предложу кнопку **\"🗓️ Настроить напоминание\"**. Нажмите ее.\n" +
+                            "3. В открывшемся окне выберите **дату и время** для напоминания.\n" +
+                            "4. Нажмите **\"Установить напоминание\"** в этом окне.\n" +
+                            "5. Я пришлю подтверждение, и в указанное время напомню о сообщении.\n\n" +
+                            "📜 **Доступные команды:**\n" +
+                            "/start - Начало работы с ботом\n" +
+                            "/help - Эта инструкция\n" +
+                            "/status - Проверить ваши активные напоминания\n" +
+                            "/unsubscribe - Удалить все ваши активные напоминания\n" +
+                            "/settings - Настройки (в разработке)\n\n" +
+                            "Если возникли проблемы или есть предложения, сообщите разработчику @antilopinae."
+                )
+                println("Обработана команда /help для чата ${chatId.id}")
+            }
+
+            command("settings") {
+                val chatId = ChatId.fromId(message.chat.id)
+                bot.sendMessage(
+                    chatId = chatId,
+                    text = "⚙️ Настройки пока находятся в разработке. Следите за обновлениями!"
+                )
+                println("Обработана команда /settings для чата ${chatId.id}")
+            }
+
+            command("status") {
+                val userChatId = message.chat.id
+                GlobalScope.launch {
+                    val userActiveReminders = remindersMutex.withLock {
+                        remindersList.filter { it.userChatId == userChatId && !it.isSent }
+                            .sortedBy { it.reminderTimestampMillis }
+                    }
+
+                    if (userActiveReminders.isEmpty()) {
+                        bot.sendMessage(ChatId.fromId(userChatId), "У вас нет активных напоминаний. ✨")
+                    } else {
+                        val remindersText = userActiveReminders.mapIndexed { index, reminder ->
+                            val reminderTimeStr = dateFormatter.format(Date(reminder.reminderTimestampMillis))
+                            var contentPreview = reminder.messageTextContent?.take(30)
+                                ?: reminder.originalMessageIdToForward?.let { "исходное сообщение" }
+                                ?: "сообщение"
+                            if (contentPreview.length == 30 && (reminder.messageTextContent?.length ?: 0) > 30) contentPreview += "..."
+
+                            "${index + 1}. Напоминание для \"$contentPreview\" на $reminderTimeStr"
+                        }.joinToString("\n\n")
+
+                        bot.sendMessage(
+                            chatId = ChatId.fromId(userChatId),
+                            text = "🗓️ **Ваши активные напоминания:**\n\n$remindersText"
+                        )
+                    }
+                }
+                println("Обработана команда /status для чата ${userChatId}")
+            }
+
+            command("unsubscribe") {
+                val userChatId = message.chat.id
+                var removedCount = 0
+                GlobalScope.launch {
+                    remindersMutex.withLock {
+                        val initialSize = remindersList.size
+                        remindersList.removeIf { it.userChatId == userChatId && !it.isSent }
+                        removedCount = initialSize - remindersList.size
+                    }
+
+                    if (removedCount > 0) {
+                        bot.sendMessage(ChatId.fromId(userChatId), "✅ Все ваши $removedCount активных напоминаний были удалены.")
+                    } else {
+                        bot.sendMessage(ChatId.fromId(userChatId), "У вас не было активных напоминаний для удаления.")
+                    }
+                    println("Обработана команда /unsubscribe для чата ${userChatId}, удалено $removedCount напоминаний.")
+                }
             }
 
             message {
                 val incomingMessage = message
                 val currentChatId = ChatId.fromId(incomingMessage.chat.id)
+                val webAppDataFromMessage = incomingMessage.webAppData
 
-                val webAppData = message.webAppData
-                if (webAppData != null) {
-                    val webAppDataJson = webAppData.data
+                if (webAppDataFromMessage != null) {
+                    val webAppDataJson = webAppDataFromMessage.data
                     println("Получены данные от Web App: $webAppDataJson")
 
                     try {
@@ -61,26 +151,32 @@ fun main() {
                             val reminder_type: String,
                             val reminder_timestamp_millis: Long,
                             val forwarded_to_bot_at_millis: Long,
-
                             val original_message_id: String? = null,
                             val original_chat_id: String? = null,
                             val text_content: String? = null
                         )
 
-                        val request = Json { ignoreUnknownKeys = true }.decodeFromString<ReminderRequestFromTwa>(webAppDataJson.toString()) // Json { ignoreUnknownKeys = true }
+                        val request = Json { ignoreUnknownKeys = true }.decodeFromString<ReminderRequestFromTwa>(webAppDataJson.toString())
 
                         if (request.action == "set_reminder") {
                             val newReminder = Reminder(
                                 userChatId = request.user_chat_id.toLong(),
                                 reminderTimestampMillis = request.reminder_timestamp_millis,
-                                forwardedToBotAtMillis = request.forwarded_to_bot_at_millis, // Сохраняем это время
+                                forwardedToBotAtMillis = request.forwarded_to_bot_at_millis,
                                 originalMessageIdToForward = if (request.reminder_type == "forward") request.original_message_id?.toLongOrNull() else null,
                                 originalChatIdToForwardFrom = if (request.reminder_type == "forward") request.original_chat_id?.toLongOrNull() else null,
                                 messageTextContent = if (request.reminder_type == "text_content") request.text_content else null
                             )
 
+                            GlobalScope.launch {
+                                remindersMutex.withLock {
+                                    remindersList.add(newReminder)
+                                }
+                            }
+                            println("Напоминание добавлено: $newReminder")
+
                             val reminderDate = Date(request.reminder_timestamp_millis)
-                            var confirmationText = "✅ Напоминание успешно установлено на $reminderDate"
+                            var confirmationText = "✅ Напоминание успешно установлено на ${dateFormatter.format(reminderDate)}"
                             if (request.reminder_type == "text_content" && newReminder.messageTextContent.isNullOrEmpty()) {
                                 confirmationText += " (текст сообщения не был захвачен, будет общее напоминание)"
                             }
@@ -92,10 +188,10 @@ fun main() {
                     } catch (e: Exception) {
                         println("Ошибка обработки данных от Web App: ${e.message}")
                         e.printStackTrace()
-                        // val possiblyUserChatId = Json.parseToJsonElement(webAppDataJson).jsonObject["user_chat_id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-                        // if (possiblyUserChatId != null) {
-                        //     bot.sendMessage(ChatId.fromId(possiblyUserChatId), "Произошла ошибка при установке напоминания.")
-                        // }
+                        bot.sendMessage(
+                            ChatId.fromId(message.chat.id),
+                            text = "Произошла ошибка при установке напоминания через веб-приложение. Попробуйте еще раз."
+                        )
                     }
                 }
                 else if (incomingMessage.forwardDate != null || incomingMessage.forwardFrom != null || incomingMessage.forwardFromChat != null) {
@@ -106,14 +202,14 @@ fun main() {
                     println("Получено ОБЫЧНОЕ ТЕКСТОВОЕ сообщение от ${incomingMessage.chat.username ?: "N/A"} (ID: ${currentChatId.id}): '${incomingMessage.text}'")
                     bot.sendMessage(
                         chatId = currentChatId,
-                        text = "Пожалуйста, перешлите мне сообщение, которое вы хотите сохранить в календарь."
+                        text = "Пожалуйста, перешлите мне сообщение, которое вы хотите сохранить в календарь. Используйте /help для инструкции."
                     )
                 }
                 else {
-                    println("Получено другое (не текст, не пересланное) сообщение от ${incomingMessage.chat.username ?: "N/A"} (ID: ${currentChatId.id})")
+                    println("Получено другое (не текст, не пересланное, не webapp data) сообщение от ${incomingMessage.chat.username ?: "N/A"} (ID: ${currentChatId.id})")
                     bot.sendMessage(
                         chatId = currentChatId,
-                        text = "Пожалуйста, перешлите мне сообщение для добавления в календарь."
+                        text = "Пожалуйста, перешлите мне сообщение для добавления в календарь. Используйте /help для инструкции."
                     )
                 }
             }
@@ -121,7 +217,6 @@ fun main() {
     }
 
     bot.startPolling()
-
     startReminderScheduler(bot)
     println("Бот успешно запущен и ожидает сообщений.")
 }
@@ -139,7 +234,7 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
 
     var webAppQueryParameters = "user_chat_id=${userChatId.id}" +
             "&event_hint=${URLEncoder.encode(eventHint.take(100), StandardCharsets.UTF_8.toString())}" +
-            "&forwarded_to_bot_at=${forwardedMessageToBot.date}"
+            "&forwarded_to_bot_at=${forwardedMessageToBot.date}" // date это Unix time в секундах
 
     if (originalMessageIdForForward != null && originalChatIdFromForForward != null) {
         webAppQueryParameters += "&type=forward" +
@@ -149,9 +244,10 @@ private fun handleForwardedContent(env: MessageHandlerEnvironment, baseWebAppUrl
     } else {
         webAppQueryParameters += "&type=text_content"
         if (capturedTextContent != null) {
-            webAppQueryParameters += "&text_content=${URLEncoder.encode(capturedTextContent.take(500), StandardCharsets.UTF_8.toString())}"
+            // Ограничиваем длину передаваемого текста, чтобы URL не стал слишком длинным
+            webAppQueryParameters += "&text_content=${URLEncoder.encode(capturedTextContent.take(400), StandardCharsets.UTF_8.toString())}"
         }
-        println("Готовим TWA для ОТПРАВКИ ТЕКСТА (пересылка невозможна). Текст: $capturedTextContent")
+        println("Готовим TWA для ОТПРАВКИ ТЕКСТА (пересылка невозможна). Текст захвачен: ${capturedTextContent != null}")
     }
 
     val finalWebAppUrl = "$baseWebAppUrl?$webAppQueryParameters"
@@ -181,7 +277,7 @@ fun startReminderScheduler(bot: Bot) {
 
                 remindersMutex.withLock {
                     val iterator = remindersList.iterator()
-                    while(iterator.hasNext()){
+                    while (iterator.hasNext()) {
                         val reminder = iterator.next()
                         if (reminder.reminderTimestampMillis <= now && !reminder.isSent) {
                             dueReminders.add(reminder)
@@ -190,6 +286,8 @@ fun startReminderScheduler(bot: Bot) {
                 }
 
                 for (reminder in dueReminders) {
+                    var reminderSuccessfullyHandled = false
+
                     if (reminder.originalMessageIdToForward != null && reminder.originalChatIdToForwardFrom != null) {
                         println("Отправка напоминания (пересылка): $reminder")
                         val forwardResult = bot.forwardMessage(
@@ -198,26 +296,36 @@ fun startReminderScheduler(bot: Bot) {
                             messageId = reminder.originalMessageIdToForward,
                             disableNotification = false
                         )
-                        if (!forwardResult.isSuccess) {
-                            println("Не удалось переслать сообщение для напоминания ${reminder.reminderId}: ${forwardResult.get().text ?: "Нет описания ошибки"}")
-                            val fallbackText = "🔔 Напоминаю о сообщении, которое вы переслали ${Date(reminder.forwardedToBotAtMillis)}." +
-                                    (if (!reminder.messageTextContent.isNullOrEmpty()) "\n\nСодержимое: «${reminder.messageTextContent.take(200)}...»" else "")
-                            bot.sendMessage(ChatId.fromId(reminder.userChatId), text = fallbackText)
-                        } else {
+                        if (forwardResult.isSuccess) {
+                            reminderSuccessfullyHandled = true
                             bot.sendMessage(
                                 chatId = ChatId.fromId(reminder.userChatId),
-                                text = "🔔 Напоминаю об этом! (сообщение выше)"
-                                // replyToMessageId = forwardResult.first?.result?.messageId // Можно отвечать на пересланное
+                                text = "🔔 Напоминаю об этом! (сообщение выше)",
+                                replyToMessageId = forwardResult.get().messageId
                             )
+                        } else {
+                            println("Не удалось переслать сообщение для напоминания ${reminder.reminderId}: ${forwardResult.get().text ?: "Нет описания ошибки"}")
+                            val fallbackText = "🔔 Напоминаю о сообщении, которое вы переслали ${dateFormatter.format(Date(reminder.forwardedToBotAtMillis))}." +
+                                    (if (!reminder.messageTextContent.isNullOrEmpty()) "\n\nСодержимое: «${reminder.messageTextContent.take(200)}...»" else "\n(Не удалось переслать оригинал. Текстовое содержимое не было сохранено для этого типа напоминания, если это был не просто текст).")
+                            bot.sendMessage(ChatId.fromId(reminder.userChatId), text = fallbackText)
+                            reminderSuccessfullyHandled = true
                         }
                     } else {
                         println("Отправка напоминания (текст): $reminder")
-                        val textToSend = "🔔 Напоминаю о сообщении, которое вы переслали боту ${Date(reminder.forwardedToBotAtMillis)}." +
-                                (if (!reminder.messageTextContent.isNullOrEmpty()) "\n\nЕго текст был: «${reminder.messageTextContent.take(3000)}»" else "\n(Текстовое содержимое не было сохранено).") // Увеличил лимит
+                        val textToSend = "🔔 Напоминаю о сообщении, которое вы переслали боту ${dateFormatter.format(Date(reminder.forwardedToBotAtMillis))}." +
+                                (if (!reminder.messageTextContent.isNullOrEmpty()) "\n\nЕго текст был: «${reminder.messageTextContent}»" else "\n(Текстовое содержимое не было сохранено).")
                         bot.sendMessage(
                             chatId = ChatId.fromId(reminder.userChatId),
                             text = textToSend
                         )
+                        reminderSuccessfullyHandled = true
+                    }
+
+                    if (reminderSuccessfullyHandled) {
+                        remindersMutex.withLock {
+                            remindersList.find { it.reminderId == reminder.reminderId }?.isSent = true
+                        }
+                        println("Напоминание ${reminder.reminderId} обработано.")
                     }
                 }
 
